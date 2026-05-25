@@ -1,6 +1,6 @@
 import { Amplify }  from '@aws-amplify/core';
-import { withAuthenticator } from '@aws-amplify/ui-react';
-import '@aws-amplify/ui-react/styles.css';
+//import { withAuthenticator } from '@aws-amplify/ui-react';
+//import '@aws-amplify/ui-react/styles.css';
 import awsconfig from './aws-exports';
 import React, { useState, useEffect } from 'react';
 import './App.css';
@@ -32,4 +32,5 @@ function App({ signOut, user }) {
   );
 }
 
-export default withAuthenticator(App);
+//export default withAuthenticator(App);
+export default App;
