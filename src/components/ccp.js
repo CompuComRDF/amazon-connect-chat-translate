@@ -279,13 +279,18 @@ const Ccp = () => {
             }
         );
     
-        // ❗ WAIT FOR CONNECT TO EXIST
-        const waitForConnect = setInterval(() => {
-            if (window.connect && window.connect.contact) {
-                clearInterval(waitForConnect);
+        // ✅ GUARANTEE subscription happens exactly once
+        const waitForConnectReady = () => {
+            if (window.connect && window.connect.contact && window.connect.agent) {
+                console.log("CDEBUG ===> Connect ready, subscribing events");
                 subscribeConnectEvents();
+            } else {
+                console.log("CDEBUG ===> Waiting for Connect...");
+                setTimeout(waitForConnectReady, 500);
             }
-        }, 500);
+        };
+    
+        waitForConnectReady();
     
     }, []);
 
