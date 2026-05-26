@@ -5,28 +5,45 @@ import translateTextAPI from './translateAPI';
 import { addChat, useGlobalState } from '../store/state';
 
 const Chatroom = (props) => {
+
     const [Chats] = useGlobalState('Chats');
-    const currentContactId = useGlobalState('currentContactId');
+
+    // ✅ FIX #1: MUST destructure correctly
+    const [currentContactId] = useGlobalState('currentContactId');
+
     const [newMessage, setNewMessage] = useState("");
     const [languageTranslate] = useGlobalState('languageTranslate');
     const [languageOptions] = useGlobalState('languageOptions');
 
     const agentUsername = 'AGENT';
+
     const messageEl = useRef(null);
     const input = useRef(null);
 
-    // Get language mapping for current contact
-    const getDestLanguage = () => {
-        return languageTranslate.find(o => o.contactId === currentContactId);
+    // ---------------------------
+    // LANGUAGE LOOKUP
+    // ---------------------------
+    const getDestLang = () => {
+        return languageTranslate.find(
+            o => o.contactId === currentContactId
+        );
     };
 
-    // Map language code -> label
     function getKeyByValue(object) {
-        const obj = languageTranslate.find(o => o.contactId === currentContactId);
+        const obj = languageTranslate.find(
+            o => o.contactId === currentContactId
+        );
+
         if (!obj) return "";
-        return Object.keys(object).find(key => object[key] === obj.lang);
+
+        return Object.keys(object).find(
+            key => object[key] === obj.lang
+        );
     }
 
+    // ---------------------------
+    // SEND MESSAGE TO CCP
+    // ---------------------------
     const sendMessage = async (session, content) => {
         try {
             const awsSdkResponse = await session.sendMessage({
@@ -36,16 +53,23 @@ const Chatroom = (props) => {
 
             const { AbsoluteTime, Id } = awsSdkResponse.data;
             console.log("Sent:", AbsoluteTime, Id);
+
         } catch (err) {
             console.error("sendMessage error:", err);
         }
     };
 
+    // ---------------------------
+    // AUTO SCROLL + FOCUS
+    // ---------------------------
     useEffect(() => {
         if (messageEl.current) {
             const handler = (event) => {
                 const target = event.currentTarget;
-                target.scroll({ top: target.scrollHeight, behavior: 'smooth' });
+                target.scroll({
+                    top: target.scrollHeight,
+                    behavior: 'smooth'
+                });
             };
 
             messageEl.current.addEventListener('DOMNodeInserted', handler);
@@ -60,15 +84,36 @@ const Chatroom = (props) => {
         input.current?.focus();
     }, [currentContactId]);
 
+    // ---------------------------
+    // SESSION RETRIEVAL
+    // ---------------------------
+    function getSession(contactId, sessionMap) {
+        if (!sessionMap) return null;
+
+        for (const obj of sessionMap) {
+            for (const key in obj) {
+                if (key === contactId) {
+                    return obj[key];
+                }
+            }
+        }
+        return null;
+    }
+
+    // ---------------------------
+    // SUBMIT MESSAGE
+    // ---------------------------
     async function handleSubmit(event) {
         event.preventDefault();
 
         if (!newMessage.trim()) return;
 
-        const destLang = getDestLanguage();
+        console.log("DEBUG contactId:", currentContactId);
 
-        if (!destLang) {
-            console.error("No language mapped for contact:", currentContactId);
+        const destLang = getDestLang();
+
+        if (!destLang?.lang) {
+            console.error("No language mapping found:", currentContactId);
             return;
         }
 
@@ -79,7 +124,7 @@ const Chatroom = (props) => {
                 destLang.lang
             );
 
-            console.log("Translate API response:", translatedMessageAPI);
+            console.log("Translate API result:", translatedMessageAPI);
 
             const translatedMessage = translatedMessageAPI?.TranslatedText;
 
@@ -101,7 +146,9 @@ const Chatroom = (props) => {
             const sanitizedNewMessage = sanitizeText(newMessage);
             const sanitizedTranslatedMessage = sanitizeText(translatedMessage);
 
-            // Add to UI store
+            // ---------------------------
+            // ADD TO CHAT STORE
+            // ---------------------------
             addChat(prev => [
                 ...prev,
                 {
@@ -117,7 +164,7 @@ const Chatroom = (props) => {
             if (session) {
                 await sendMessage(session, translatedMessage);
             } else {
-                console.warn("No CCP session found for contact:", currentContactId);
+                console.warn("No session found for contact:", currentContactId);
             }
 
             setNewMessage("");
@@ -127,20 +174,9 @@ const Chatroom = (props) => {
         }
     }
 
-    // Extract CCP session safely
-    function getSession(contactId, sessionMap) {
-        if (!sessionMap) return null;
-
-        for (const obj of sessionMap) {
-            for (const key in obj) {
-                if (key === contactId) {
-                    return obj[key];
-                }
-            }
-        }
-        return null;
-    }
-
+    // ---------------------------
+    // RENDER
+    // ---------------------------
     return (
         <div className="chatroom">
             <h3>
@@ -159,8 +195,7 @@ const Chatroom = (props) => {
                             chat={chat}
                             user={agentUsername}
                         />
-                    ))
-                }
+                    ))}
             </ul>
 
             <form className="input" onSubmit={handleSubmit}>
