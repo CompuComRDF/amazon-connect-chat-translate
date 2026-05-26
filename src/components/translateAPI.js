@@ -15,31 +15,37 @@ async function ProcessChatTextAPI(content, sourceLang, targetLang) {
     console.log("ProcessChatTextAPI:", { content, sourceLang, targetLang });
 
     try {
-        const { body } = await post({
+        const response = await post({
             apiName,
             path,
             options: myInit,
         });
 
-        // ✅ FIX 1: Normalize body safely
-        let data;
+        console.log("Raw response:", response);
 
-        if (body instanceof ReadableStream) {
-            const text = await new Response(body).text();
-            data = JSON.parse(text);
-        } else if (typeof body?.json === "function") {
-            data = await body.json();
-        } else {
-            data = body;
+        // ✅ IMPORTANT FIX: Amplify v6 response handling
+        const data = await response.response;
+
+        // If body is already parsed JSON
+        if (data && typeof data.json === "function") {
+            const json = await data.json();
+            console.log("Parsed Response:", json);
+            return json;
         }
 
-        console.log("Parsed Response:", data);
+        // fallback safety
+        if (data?.body) {
+            const text = await data.body.text?.();
+            const json = JSON.parse(text);
+            console.log("Parsed Response (text fallback):", json);
+            return json;
+        }
 
-        // ✅ FIX 2: return ONLY translated text (not full object)
-        return data?.TranslatedText ?? null;
+        console.error("Unexpected response format:", data);
+        return null;
 
     } catch (error) {
-        console.error("ProcessChatTextAPI failed:", error);
+        console.error("ProcessChatTextAPI ERROR:", error);
         return null;
     }
 }
