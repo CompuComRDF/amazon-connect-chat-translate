@@ -169,15 +169,18 @@ const Ccp = () => {
         window.connect.agentApp.initApp(
             "ccp",
             "ccp-container",
-            connectUrl + "/connect/ccp-v2/",
+            //connectUrl + "/connect/ccp-v2/",
+            connectUrl + "/ccp-v2/",
             {
                 ccpParams: {
                     region,
                     loginPopup: true,
                     loginPopupAutoClose: true,
-                    loginUrl: connectUrl + "/connect/login",
+                    //loginUrl: connectUrl + "/connect/login",
+                    loginUrl: connectUrl + "/login",
                     softphone: {
                         allowFramedSoftphone: true,
+                        allowEarlyGum: true,
                         disableRingtone: false,
                         allowMicrophoneAccess: true,
                         allowVideoDeviceAccess: true
