@@ -166,31 +166,54 @@ const Ccp = () => {
 
         ccpInitialized.current = true;
 
-        window.connect.agentApp.initApp(
-            "ccp",
-            "ccp-container",
-            //connectUrl + "/connect/ccp-v2/",
-            connectUrl + "/ccp-v2/",
-            {
-                ccpParams: {
-                    region,
-                    loginPopup: true,
-                    loginPopupAutoClose: true,
-                    //loginUrl: connectUrl + "/connect/login",
-                    loginUrl: connectUrl + "/login",
-                    softphone: {
-                        allowFramedSoftphone: true,
-                        allowEarlyGum: true,
-                        disableRingtone: false,
-                        allowMicrophoneAccess: true,
-                        allowVideoDeviceAccess: true
-                    },
+        //window.connect.agentApp.initApp(
+        //    "ccp",
+        //    "ccp-container",
+        //    //connectUrl + "/connect/ccp-v2/",
+        //    connectUrl + "/ccp-v2/",
+        //    {
+        //        ccpParams: {
+        //            region,
+        //            loginPopup: true,
+        //            loginPopupAutoClose: true,
+        //            //loginUrl: connectUrl + "/connect/login",
+        //            loginUrl: connectUrl + "/login",
+        //            softphone: {
+        //                allowFramedSoftphone: true,
+        //                allowEarlyGum: true,
+        //                disableRingtone: false,
+        //                allowMicrophoneAccess: true,
+        //                allowVideoDeviceAccess: true
+        //            },
 
-                    pageOptions: {
-                        enableAudioDeviceSettings: true,
-                        enablePhoneTypeSettings: true,
-                        enableVideoDeviceSettings: true
-                    }                    
+        //            pageOptions: {
+        //                enableAudioDeviceSettings: true,
+        //                enablePhoneTypeSettings: true,
+        //                enableVideoDeviceSettings: true
+        //            }                    
+        //        }
+        //    }
+        //);
+
+        window.connect.core.initCCP(
+            document.getElementById("ccp-container"),
+            {
+                ccpUrl: connectUrl + "/ccp-v2/",
+                region,
+                loginPopup: true,
+                loginPopupAutoClose: true,
+                loginUrl: connectUrl + "/login",
+
+                softphone: {
+                    allowFramedSoftphone: true,
+                    allowEarlyGum: true,
+                    disableRingtone: false
+                },
+
+                pageOptions: {
+                    enableAudioDeviceSettings: true,
+                    enablePhoneTypeSettings: true,
+                    enableVideoDeviceSettings: true
                 }
             }
         );
