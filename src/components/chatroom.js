@@ -7,86 +7,64 @@ import { addChat, useGlobalState } from '../store/state';
 const Chatroom = (props) => {
 
     const [Chats] = useGlobalState('Chats');
-
-    // ✅ FIX #1: MUST destructure correctly
     const [currentContactId] = useGlobalState('currentContactId');
-
-    const [newMessage, setNewMessage] = useState("");
     const [languageTranslate] = useGlobalState('languageTranslate');
     const [languageOptions] = useGlobalState('languageOptions');
+
+    const [newMessage, setNewMessage] = useState("");
 
     const agentUsername = 'AGENT';
 
     const messageEl = useRef(null);
     const input = useRef(null);
 
-    // ---------------------------
-    // LANGUAGE LOOKUP
-    // ---------------------------
+    // Normalize contactId (CRITICAL FIX)
+    const contactId = Array.isArray(currentContactId)
+        ? currentContactId[0]
+        : currentContactId;
+
+    // Get destination language
     const getDestLang = () => {
-        return languageTranslate.find(
-            o => o.contactId === currentContactId
-        );
+        return languageTranslate.find(o => o.contactId === contactId);
     };
 
+    // Map language label
     function getKeyByValue(object) {
-        const obj = languageTranslate.find(
-            o => o.contactId === currentContactId
-        );
-
+        const obj = languageTranslate.find(o => o.contactId === contactId);
         if (!obj) return "";
-
-        return Object.keys(object).find(
-            key => object[key] === obj.lang
-        );
+        return Object.keys(object).find(key => object[key] === obj.lang);
     }
 
-    // ---------------------------
-    // SEND MESSAGE TO CCP
-    // ---------------------------
+    // Send message to CCP
     const sendMessage = async (session, content) => {
         try {
-            const awsSdkResponse = await session.sendMessage({
+            await session.sendMessage({
                 contentType: "text/plain",
                 message: content
             });
-
-            const { AbsoluteTime, Id } = awsSdkResponse.data;
-            console.log("Sent:", AbsoluteTime, Id);
-
         } catch (err) {
             console.error("sendMessage error:", err);
         }
     };
 
-    // ---------------------------
-    // AUTO SCROLL + FOCUS
-    // ---------------------------
+    // Auto scroll
     useEffect(() => {
-        if (messageEl.current) {
-            const handler = (event) => {
-                const target = event.currentTarget;
-                target.scroll({
-                    top: target.scrollHeight,
-                    behavior: 'smooth'
-                });
-            };
+        const el = messageEl.current;
+        if (!el) return;
 
-            messageEl.current.addEventListener('DOMNodeInserted', handler);
+        const handler = (event) => {
+            event.currentTarget.scrollTop = event.currentTarget.scrollHeight;
+        };
 
-            return () => {
-                messageEl.current?.removeEventListener('DOMNodeInserted', handler);
-            };
-        }
+        el.addEventListener('DOMNodeInserted', handler);
+        return () => el.removeEventListener('DOMNodeInserted', handler);
     }, []);
 
     useEffect(() => {
         input.current?.focus();
-    }, [currentContactId]);
+    }, [contactId]);
 
-    // ---------------------------
-    // SESSION RETRIEVAL
-    // ---------------------------
+    // Session lookup
     function getSession(contactId, sessionMap) {
         if (!sessionMap) return null;
 
@@ -100,71 +78,51 @@ const Chatroom = (props) => {
         return null;
     }
 
-    // ---------------------------
-    // SUBMIT MESSAGE
-    // ---------------------------
-    async function handleSubmit(event) {
-        event.preventDefault();
+    // Submit message
+    async function handleSubmit(e) {
+        e.preventDefault();
 
         if (!newMessage.trim()) return;
-
-        console.log("DEBUG contactId:", currentContactId);
 
         const destLang = getDestLang();
 
         if (!destLang?.lang) {
-            console.error("No language mapping found:", currentContactId);
+            console.error("No language mapping for:", contactId);
             return;
         }
 
         try {
-            const translatedMessageAPI = await translateTextAPI(
+            const result = await translateTextAPI(
                 newMessage,
                 'en',
                 destLang.lang
             );
 
-            console.log("Translate API result:", translatedMessageAPI);
+            console.log("Translate API result:", result);
 
-            const translatedMessage = translatedMessageAPI?.TranslatedText;
+            const translatedText = result?.TranslatedText;
 
-            if (!translatedMessage) {
-                console.error("Translation failed:", translatedMessageAPI);
+            if (!translatedText) {
+                console.error("Translation failed:", result);
                 return;
             }
 
-            const sanitizeText = (text) =>
-                typeof text === 'string'
-                    ? text
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;')
-                        .replace(/"/g, '&quot;')
-                        .replace(/'/g, '&#039;')
-                    : '';
+            // IMPORTANT: store RAW TEXT only (fixes special characters issue)
+            const messageObject = {
+                contactId,
+                username: agentUsername,
+                content: newMessage,
+                translatedMessage: translatedText
+            };
 
-            const sanitizedNewMessage = sanitizeText(newMessage);
-            const sanitizedTranslatedMessage = sanitizeText(translatedMessage);
+            addChat(prev => [...prev, messageObject]);
 
-            // ---------------------------
-            // ADD TO CHAT STORE
-            // ---------------------------
-            addChat(prev => [
-                ...prev,
-                {
-                    contactId: currentContactId,
-                    username: agentUsername,
-                    content: <p>{sanitizedNewMessage}</p>,
-                    translatedMessage: <p>{sanitizedTranslatedMessage}</p>
-                }
-            ]);
-
-            const session = getSession(currentContactId, props.session);
+            const session = getSession(contactId, props.session);
 
             if (session) {
-                await sendMessage(session, translatedMessage);
+                await sendMessage(session, translatedText);
             } else {
-                console.warn("No session found for contact:", currentContactId);
+                console.warn("No session found for:", contactId);
             }
 
             setNewMessage("");
@@ -174,21 +132,19 @@ const Chatroom = (props) => {
         }
     }
 
-    // ---------------------------
-    // RENDER
-    // ---------------------------
     return (
         <div className="chatroom">
+
             <h3>
                 Translate -
-                ({languageTranslate.find(l => l.contactId === currentContactId)?.lang || ""})
+                ({languageTranslate.find(l => l.contactId === contactId)?.lang || ""})
                 {" "}
                 {getKeyByValue(languageOptions)}
             </h3>
 
             <ul className="chats" ref={messageEl}>
                 {Chats
-                    .filter(chat => chat.contactId === currentContactId)
+                    .filter(chat => chat.contactId === contactId)
                     .map((chat, idx) => (
                         <Message
                             key={chat.id || `${chat.contactId}-${idx}`}
@@ -208,6 +164,7 @@ const Chatroom = (props) => {
                 />
                 <input type="submit" value="Submit" />
             </form>
+
         </div>
     );
 };
