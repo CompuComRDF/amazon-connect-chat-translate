@@ -1,152 +1,180 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './chatroom.css';
 import Message from './message.js';
-//import translateText from './translate'
-import translateTextAPI from './translateAPI'
+import translateTextAPI from './translateAPI';
 import { addChat, useGlobalState } from '../store/state';
 
 const Chatroom = (props) => {
-
     const [Chats] = useGlobalState('Chats');
     const currentContactId = useGlobalState('currentContactId');
     const [newMessage, setNewMessage] = useState("");
     const [languageTranslate] = useGlobalState('languageTranslate');
     const [languageOptions] = useGlobalState('languageOptions');
+
     const agentUsername = 'AGENT';
     const messageEl = useRef(null);
     const input = useRef(null);
-    
+
+    // Get language mapping for current contact
+    const getDestLanguage = () => {
+        return languageTranslate.find(o => o.contactId === currentContactId);
+    };
+
+    // Map language code -> label
     function getKeyByValue(object) {
-        let obj = languageTranslate.find(o => o.contactId === currentContactId[0]);
-        if(obj === undefined) {
-            return
-          } else {
-                return Object.keys(object).find(key => object[key] === obj.lang);
-        }
-        
+        const obj = languageTranslate.find(o => o.contactId === currentContactId);
+        if (!obj) return "";
+        return Object.keys(object).find(key => object[key] === obj.lang);
     }
 
-    const sendMessage = async(session, content) => {
-        const awsSdkResponse = await session.sendMessage({
-            contentType: "text/plain",
-            message: content
-        });
-        const { AbsoluteTime, Id } = awsSdkResponse.data;
-        console.log(AbsoluteTime, Id);
-    }
+    const sendMessage = async (session, content) => {
+        try {
+            const awsSdkResponse = await session.sendMessage({
+                contentType: "text/plain",
+                message: content
+            });
+
+            const { AbsoluteTime, Id } = awsSdkResponse.data;
+            console.log("Sent:", AbsoluteTime, Id);
+        } catch (err) {
+            console.error("sendMessage error:", err);
+        }
+    };
 
     useEffect(() => {
-
-        // this ensures that the chat window will auto scoll to ensure the more recent message is in view
-        if (messageEl) {
-            messageEl.current.addEventListener('DOMNodeInserted', event => {
-                const { currentTarget: target } = event;
+        if (messageEl.current) {
+            const handler = (event) => {
+                const target = event.currentTarget;
                 target.scroll({ top: target.scrollHeight, behavior: 'smooth' });
-            });
+            };
+
+            messageEl.current.addEventListener('DOMNodeInserted', handler);
+
+            return () => {
+                messageEl.current?.removeEventListener('DOMNodeInserted', handler);
+            };
         }
-        // this ensure that the input box has the focus on load and after each entry
-        input.current.focus();
     }, []);
 
+    useEffect(() => {
+        input.current?.focus();
+    }, [currentContactId]);
 
     async function handleSubmit(event) {
         event.preventDefault();
-        // if there is no text in the the chat input box, do nothing.
-        if (newMessage === "") {
+
+        if (!newMessage.trim()) return;
+
+        const destLang = getDestLanguage();
+
+        if (!destLang) {
+            console.error("No language mapped for contact:", currentContactId);
             return;
         }
-        let destLang = languageTranslate.find(o => o.contactId === currentContactId[0]);
-        console.log("destLang: ", destLang);
 
-        // translate the agent message  ** Swap the below two round if you wnat to test custom termonologies **
-        // let translatedMessage = await translateText(newMessage, 'en', destLang.lang);
+        try {
+            const translatedMessageAPI = await translateTextAPI(
+                newMessage,
+                'en',
+                destLang.lang
+            );
 
-        /***********************************CUSTOM TERMINOLOGY*************************************************    
-         
-            To support custom terminologies comment out the line above, and uncomment the below 2 lines 
-         
-         ******************************************************************************************************/
-        console.log(newMessage);
-        let translatedMessageAPI = await translateTextAPI(newMessage, 'en', destLang.lang); // Provide a custom terminology created outside of this deployment
-        //let translatedMessageAPI = await translateTextAPI(newMessage, 'en', destLang.lang, ['connectChatTranslate']); // Provide a custom terminology created outside of this deployment
-        let translatedMessage = translatedMessageAPI.TranslatedText
+            console.log("Translate API response:", translatedMessageAPI);
 
-        console.log(` Original Message: ` + newMessage + `\n Translated Message: ` + translatedMessage);
-        
-        // Sanitize content to prevent XSS - escape HTML entities
-        const sanitizeText = (text) => {
-            if (typeof text !== 'string') return '';
-            return text
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
-        };
-        
-        const sanitizedNewMessage = sanitizeText(newMessage);
-        const sanitizedTranslatedMessage = sanitizeText(translatedMessage);
-        
-        // create the new message to add to Chats.
-        let data2 = {
-            contactId: currentContactId[0],
-            username: agentUsername,
-            content: <p>{sanitizedNewMessage}</p>,
-            translatedMessage: <p>{sanitizedTranslatedMessage}</p>, // set to {translatedMessage.TranslatedText} if using custom terminologies
-        };
-        // add the new message to the store
-        addChat(prevMsg => [...prevMsg, data2]);
-        // clear the chat input box
-        setNewMessage("");
+            const translatedMessage = translatedMessageAPI?.TranslatedText;
 
-        
-        
-        const session = retrieveValue(currentContactId[0]);
+            if (!translatedMessage) {
+                console.error("Translation failed:", translatedMessageAPI);
+                return;
+            }
 
-        function retrieveValue(key){
-            var value = "";
-            for(var obj in props.session) {
-            for(var item in props.session[obj]) {
-                if(item === key) {
-                    value = props.session[obj][item];
-                    break;
+            const sanitizeText = (text) =>
+                typeof text === 'string'
+                    ? text
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#039;')
+                    : '';
+
+            const sanitizedNewMessage = sanitizeText(newMessage);
+            const sanitizedTranslatedMessage = sanitizeText(translatedMessage);
+
+            // Add to UI store
+            addChat(prev => [
+                ...prev,
+                {
+                    contactId: currentContactId,
+                    username: agentUsername,
+                    content: <p>{sanitizedNewMessage}</p>,
+                    translatedMessage: <p>{sanitizedTranslatedMessage}</p>
                 }
+            ]);
+
+            const session = getSession(currentContactId, props.session);
+
+            if (session) {
+                await sendMessage(session, translatedMessage);
+            } else {
+                console.warn("No CCP session found for contact:", currentContactId);
             }
-            }
-            return value;
+
+            setNewMessage("");
+
+        } catch (err) {
+            console.error("handleSubmit error:", err);
         }
-        sendMessage(session, translatedMessage);
     }
 
+    // Extract CCP session safely
+    function getSession(contactId, sessionMap) {
+        if (!sessionMap) return null;
 
+        for (const obj of sessionMap) {
+            for (const key in obj) {
+                if (key === contactId) {
+                    return obj[key];
+                }
+            }
+        }
+        return null;
+    }
 
     return (
         <div className="chatroom">
-                <h3>Translate - ({languageTranslate.map(lang => {if(lang.contactId === currentContactId[0])return lang.lang})}) {getKeyByValue(languageOptions)}</h3>
-                <ul className="chats" ref={messageEl}>
-                {
-                        // iterate over the Chats, and only display the messages for the currently active chat session
-                        Chats.map(chat => {
-                            if(chat.contactId === currentContactId[0])
-                                return<Message chat={chat} user={agentUsername} />
-                            }
-                        )
-                    }
-                </ul>
-                <form className="input" onSubmit={handleSubmit} >
-                    <input
-                          ref={input}
-                          maxLength = "1024"
-                          type="text"
-                          value={newMessage}
-                          onChange={e => setNewMessage(e.target.value)}
+            <h3>
+                Translate -
+                ({languageTranslate.find(l => l.contactId === currentContactId)?.lang || ""})
+                {" "}
+                {getKeyByValue(languageOptions)}
+            </h3>
+
+            <ul className="chats" ref={messageEl}>
+                {Chats
+                    .filter(chat => chat.contactId === currentContactId)
+                    .map((chat, idx) => (
+                        <Message
+                            key={chat.id || `${chat.contactId}-${idx}`}
+                            chat={chat}
+                            user={agentUsername}
                         />
-                    <input type="submit" value="Submit" />
-                </form>
- 
-            </div>
+                    ))
+                }
+            </ul>
+
+            <form className="input" onSubmit={handleSubmit}>
+                <input
+                    ref={input}
+                    maxLength={1024}
+                    type="text"
+                    value={newMessage}
+                    onChange={e => setNewMessage(e.target.value)}
+                />
+                <input type="submit" value="Submit" />
+            </form>
+        </div>
     );
 };
-
 
 export default Chatroom;
