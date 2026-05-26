@@ -178,8 +178,16 @@ const Ccp = () => {
                     loginUrl: connectUrl + "/connect/login",
                     softphone: {
                         allowFramedSoftphone: true,
-                        disableRingtone: false
-                    }
+                        disableRingtone: false,
+                        allowMicrophoneAccess: true,
+                        allowVideoDeviceAccess: true
+                    },
+
+                    pageOptions: {
+                        enableAudioDeviceSettings: true,
+                        enablePhoneTypeSettings: true,
+                        enableVideoDeviceSettings: true
+                    }                    
                 }
             }
         );
