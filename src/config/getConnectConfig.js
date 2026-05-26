@@ -1,22 +1,28 @@
 export function getConnectConfig() {
-    const path = window.location.pathname.toLowerCase();
+    const params = new URLSearchParams(window.location.search);
 
-    // Normalize route (handles /uat, /uat/, etc.)
-    const route = path.split("/").filter(Boolean)[0];
+    const instance = params.get("instance");
+    const region = params.get("region");
 
-    const configs = {
-        uat: {
-            env: "UAT",
-            connectUrl: "https://uatrdf-genesysdr.my.connect.aws",
-            region: "us-east-1"
-        },
-        prod: {
-            env: "PROD",
-            connectUrl: "https://prodrdf-genesysdr.my.connect.aws",
-            region: "us-east-1"
-        }
+    if (!instance) {
+        throw new Error("Missing required 'instance' URL parameter");
+    }
+
+    if (!region) {
+        throw new Error("Missing required 'region' URL parameter");
+    }
+
+    if (!/^[a-z0-9-]+$/.test(instance)) {
+        throw new Error("Invalid Amazon Connect instance alias");
+    }
+
+    if (!/^[a-z]{2}-[a-z]+-\d$/.test(region)) {
+        throw new Error("Invalid AWS region");
+    }
+
+    return {
+        env: instance,
+        connectUrl: `https://${instance}.my.connect.aws`,
+        region
     };
-
-    // Default fallback (important for localhost or root "/")
-    return configs[route] || configs.prod;
 }
