@@ -76,25 +76,25 @@ const Ccp = () => {
         console.log(`CDEBUG ===>  Original Message: ` + content + `\n Translated Message: ` + translatedMessage);
         
         // Sanitize content to prevent XSS - escape HTML entities
-        const sanitizeText = (text) => {
-            if (typeof text !== 'string') return '';
-            return text
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#039;');
-        };
+        //const sanitizeText = (text) => {
+        //    if (typeof text !== 'string') return '';
+        //    return text
+        //        .replace(/&/g, '&amp;')
+        //        .replace(/</g, '&lt;')
+        //        .replace(/>/g, '&gt;')
+        //        .replace(/"/g, '&quot;')
+        //        .replace(/'/g, '&#039;');
+        //};
         
-        const sanitizedContent = sanitizeText(content);
-        const sanitizedTranslatedMessage = sanitizeText(translatedMessage);
+        //const sanitizedContent = sanitizeText(content);
+        //const sanitizedTranslatedMessage = sanitizeText(translatedMessage);
         
         // create the new message to add to Chats.
         let data2 = {
             contactId: contactId,
             username: 'customer',
-            content: <p>{sanitizedContent}</p>,
-            translatedMessage: <p>{sanitizedTranslatedMessage}</p>
+            content: content,
+            translatedMessage: translatedMessage
         };
         // Add the new message to the store
         addChat(prevMsg => [...prevMsg, data2]);
