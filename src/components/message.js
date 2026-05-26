@@ -1,10 +1,16 @@
 import React from 'react';
 
-// This function creates the HTML to add the chats to the store, controlling the layout
 const Message = ({ chat, user }) => (
     <li className={`chat ${user === chat.username ? "right" : "left"}`}>
-        {chat.content}
-        <li className="translatedMessage">{chat.translatedMessage}</li>
+
+        <div className="messageContent">
+            {chat.content}
+        </div>
+
+        <div className="translatedMessage">
+            {chat.translatedMessage}
+        </div>
+
     </li>
 );
 
