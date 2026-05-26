@@ -198,7 +198,7 @@ const Ccp = () => {
         window.connect.core.initCCP(
             document.getElementById("ccp-container"),
             {
-                ccpUrl: connectUrl + "/ccp-v2/",
+                ccpUrl: connectUrl + "/ccp-v2/softphone",
                 region,
                 loginPopup: true,
                 loginPopupAutoClose: true,
@@ -208,10 +208,6 @@ const Ccp = () => {
                     allowFramedSoftphone: true,
                     allowEarlyGum: true,
                     disableRingtone: false
-                },
-
-                iframeOptions: {
-                    allow: "microphone; camera; autoplay; clipboard-read; clipboard-write"
                 },
 
                 pageOptions: {
