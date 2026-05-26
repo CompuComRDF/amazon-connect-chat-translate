@@ -1,259 +1,208 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Grid } from 'semantic-ui-react';
-import  { Amplify }  from 'aws-amplify';
+import { Amplify } from 'aws-amplify';
 import awsconfig from '../aws-exports';
 import Chatroom from './chatroom';
-import translateText from './translate'
-import detectText from './detectText'
-import { addChat, setLanguageTranslate, clearChat, useGlobalState, setCurrentContactId } from '../store/state';
+
+import { getConnectConfig } from '../config/getConnectConfig';
+
+import translateText from './translate';
+import detectText from './detectText';
+
+import {
+    addChat,
+    setLanguageTranslate,
+    clearChat,
+    useGlobalState,
+    setCurrentContactId
+} from '../store/state';
 
 Amplify.configure(awsconfig);
 
 const Ccp = () => {
+
+    const config = getConnectConfig();
+
+    const connectUrl = config.connectUrl;
+    const region = config.region;
+
     const [languageTranslate] = useGlobalState('languageTranslate');
-    var localLanguageTranslate = [];
     const [Chats] = useGlobalState('Chats');
     const [lang, setLang] = useState("");
     const [currentContactId] = useGlobalState('currentContactId');
     const [languageOptions] = useGlobalState('languageOptions');
+
     const [agentChatSessionState, setAgentChatSessionState] = useState([]);
     const [setRefreshChild] = useState([]);
+
     const ccpInitialized = useRef(false);
 
-    console.log(lang)
-    console.log(currentContactId)
-    //console.log(Chats)
-
-    // *******
-    // Subscribe to the chat session
-    // *******
+    // ---------------------------
+    // CHAT EVENT HANDLING
+    // ---------------------------
     function getEvents(contact, agentChatSession) {
-        console.log(agentChatSession);
         contact.getAgentConnection().getMediaController().then(controller => {
             controller.onMessage(messageData => {
+
                 if (messageData.chatDetails.participantId === messageData.data.ParticipantId) {
-                    console.log(`CDEBUG ===> Agent ${messageData.data.DisplayName} Says`,
-                        messageData.data.Content)
+                    console.log("AGENT:", messageData.data.Content);
+                } else {
+                    console.log("CUSTOMER:", messageData.data.Content);
+                    processChatText(
+                        messageData.data.Content,
+                        messageData.data.Type,
+                        messageData.data.ContactId
+                    );
                 }
-                else {
-                    console.log(`CDEBUG ===> Customer ${messageData.data.DisplayName} Says`,messageData.data.Content);
-                    processChatText(messageData.data.Content, messageData.data.Type, messageData.data.ContactId );
-                }
-            })
-        })
+            });
+        });
     }
-    // *******
-    // Processing the incoming chat from the Customer
-    // *******
+
+    // ---------------------------
+    // PROCESS INCOMING CHAT
+    // ---------------------------
     async function processChatText(content, type, contactId) {
-        // Check if we know the language for this contactId, if not use dectectText(). This process means we only perform comprehend language detection at most once.
-        console.log(type);
+
         let textLang = '';
-          for(var i = 0; i < languageTranslate.length; i++) {
-                if (languageTranslate[i].contactId === contactId) {
-                    textLang = languageTranslate[i].lang
-                     break
-                } 
+
+        for (let i = 0; i < languageTranslate.length; i++) {
+            if (languageTranslate[i].contactId === contactId) {
+                textLang = languageTranslate[i].lang;
+                break;
+            }
         }
-        // If the contatId was not found in the store, or the store is empty, perform dectText API to comprehend
-        if (localLanguageTranslate.length === 0 || textLang === ''){
+
+        if (!textLang) {
             let tempLang = await detectText(content);
-            textLang = tempLang.textInterpretation.language
+            textLang = tempLang.textInterpretation.language;
         }
 
-
-         // Update (or Add if new contactId) the store with the the language code
-         function upsert(array, item) { // (1)
-            const i = array.findIndex(_item => _item.contactId === item.contactId);
-            if (i > -1) array[i] = item; // (2)
-            else array.push(item);
-          }
-        upsert(languageTranslate, {contactId: contactId, lang: textLang})
-        setLanguageTranslate(languageTranslate);
-                
-        // Translate the customer message into English.
-        let translatedMessage = await translateText(content, textLang, 'en');
-        console.log(`CDEBUG ===>  Original Message: ` + content + `\n Translated Message: ` + translatedMessage);
-        
-        // Sanitize content to prevent XSS - escape HTML entities
-        //const sanitizeText = (text) => {
-        //    if (typeof text !== 'string') return '';
-        //    return text
-        //        .replace(/&/g, '&amp;')
-        //        .replace(/</g, '&lt;')
-        //        .replace(/>/g, '&gt;')
-        //        .replace(/"/g, '&quot;')
-        //        .replace(/'/g, '&#039;');
-        //};
-        
-        //const sanitizedContent = sanitizeText(content);
-        //const sanitizedTranslatedMessage = sanitizeText(translatedMessage);
-        
-        // create the new message to add to Chats.
-        let data2 = {
-            contactId: contactId,
-            username: 'customer',
-            content: content,
-            translatedMessage: translatedMessage
+        const updated = {
+            contactId,
+            lang: textLang
         };
-        // Add the new message to the store
-        addChat(prevMsg => [...prevMsg, data2]);
+
+        const exists = languageTranslate.findIndex(x => x.contactId === contactId);
+
+        if (exists > -1) languageTranslate[exists] = updated;
+        else languageTranslate.push(updated);
+
+        setLanguageTranslate([...languageTranslate]);
+
+        const translatedMessage = await translateText(content, textLang, 'en');
+
+        addChat(prev => [
+            ...prev,
+            {
+                contactId,
+                username: 'customer',
+                content,
+                translatedMessage
+            }
+        ]);
     }
 
-    // *******
-    // Subscribing to CCP events. See : https://github.com/aws/amazon-connect-streams/blob/master/Documentation.md
-    // *******
+    // ---------------------------
+    // CONNECT EVENT SUBSCRIPTION
+    // ---------------------------
     function subscribeConnectEvents() {
-        window.connect.core.onViewContact(function(event) {
-            var contactId = event.contactId;
-            console.log("CDEBUG ===> onViewContact", contactId)
-            setCurrentContactId(contactId);    
-          });
 
-        console.log("CDEBUG ===> subscribeConnectEvents");
+        window.connect.core.onViewContact((event) => {
+            setCurrentContactId(event.contactId);
+        });
 
-        // If this is a chat session
         if (window.connect.ChatSession) {
-            console.log("CDEBUG ===> Subscribing to Connect Contact Events for chats");
+
             window.connect.contact(contact => {
 
-                // This is invoked when CCP is ringing
-                contact.onConnecting(() => {
-                    console.log("CDEBUG ===> onConnecting() >> contactId: ", contact.contactId);
-                    let contactAttributes = contact.getAttributes();
-                    console.log("CDEBUG ===> contactAttributes: ", JSON.stringify(contactAttributes));
-                    let contactQueue = contact.getQueue();
-                    console.log("CDEBUG ===> contactQueue: ", contactQueue);
+                contact.onAccepted(async () => {
+
+                    const cnn = contact
+                        .getConnections()
+                        .find(c => c.getType() === window.connect.ConnectionType.AGENT);
+
+                    const agentChatSession = await cnn.getMediaController();
+
+                    setCurrentContactId(contact.contactId);
+
+                    setAgentChatSessionState(prev => [
+                        ...prev,
+                        { [contact.contactId]: agentChatSession }
+                    ]);
                 });
 
-                // This is invoked when the chat is accepted
-                contact.onAccepted(async() => {
-                    console.log("CDEBUG ===> onAccepted: ", contact);
-                    const cnn = contact.getConnections().find(cnn => cnn.getType() === window.connect.ConnectionType.AGENT);
-                    const agentChatSession = await cnn.getMediaController();
-                    setCurrentContactId(contact.contactId)
-                    console.log("CDEBUG ===> agentChatSession ", agentChatSession)
-                    // Save the session to props, this is required to send messages within the chatroom.js
-                    setAgentChatSessionState(agentChatSessionState => [...agentChatSessionState, {[contact.contactId] : agentChatSession}])
-                
-                    // Get the language from the attributes, if the value is valid then add to the store
-                    localLanguageTranslate = contact.getAttributes().x_lang.value
-                    if (Object.keys(languageOptions).find(key => languageOptions[key] === localLanguageTranslate) !== undefined){
-                        console.log("CDEBUG ===> Setting lang code from attribites:", localLanguageTranslate)
-                        languageTranslate.push({contactId: contact.contactId, lang: localLanguageTranslate})
-                        setLanguageTranslate(languageTranslate);
-                        setRefreshChild('updated') // Workaround to force a refresh of the chatroom UI to show the updated language based on contact attribute.
-                
-                    }
-                    console.log("CDEBUG ===> onAccepted, languageTranslate ", languageTranslate)
-                    
-                });
+                contact.onConnected(async () => {
+                    const cnn = contact
+                        .getConnections()
+                        .find(c => c.getType() === window.connect.ConnectionType.AGENT);
 
-                // This is invoked when the customer and agent are connected
-                contact.onConnected(async() => {
-                    console.log("CDEBUG ===> onConnected() >> contactId: ", contact.contactId);
-                    const cnn = contact.getConnections().find(cnn => cnn.getType() === window.connect.ConnectionType.AGENT);
                     const agentChatSession = await cnn.getMediaController();
+
                     getEvents(contact, agentChatSession);
                 });
 
-                // This is invoked when new agent data is available
                 contact.onRefresh(() => {
-                    console.log("CDEBUG ===> onRefresh() >> contactId: ", contact.contactId);
+                    console.log("Refresh:", contact.contactId);
                 });
 
-                // This is invoked when the agent moves to ACW
-                contact.onEnded(() => {
-                    console.log("CDEBUG ===> onEnded() >> contactId: ", contact.contactId);
-                    setLang('');
-                });
-                
-                // This is invoked when the agent moves out of ACW to a different state
                 contact.onDestroy(() => {
-                    console.log("CDEBUG ===> onDestroy() >> contactId: ", contact.contactId);
-                    // TODO need to remove the previous chats from the store
-                    //clearChat()
-                    setCurrentContactId('');
                     clearChat();
+                    setCurrentContactId('');
                 });
             });
 
-            /* 
-            **** Subscribe to the agent API **** 
-            See : https://github.com/aws/amazon-connect-streams/blob/master/Documentation.md
-            */
-
-            console.log("CDEBUG ===> Subscribing to Connect Agent Events");
-            window.connect.agent((agent) => {
-                agent.onStateChange((agentStateChange) => {
-                    // On agent state change, update the React state.
-                    let state = agentStateChange.newState;
-                    console.log("CDEBUG ===> New State: ", state);
-
-                });
-
-            });
+        } else {
+            setTimeout(subscribeConnectEvents, 3000);
         }
-        else {
-            console.log("CDEBUG ===> waiting 3s");
-            setTimeout(function() { subscribeConnectEvents(); }, 3000);
-        }
-    };
+    }
 
-
-    // ***** 
-    // Loading CCP
-    // *****
+    // ---------------------------
+    // INIT CCP
+    // ---------------------------
     useEffect(() => {
-        // Prevent multiple CCP initializations (fixes multiple window creation issue)
-        if (ccpInitialized.current) {
-            return;
-        }
-        ccpInitialized.current = true;
 
-        const connectUrl = process.env.REACT_APP_CONNECT_INSTANCE_URL;
-        const region = process.env.REACT_APP_CONNECT_REGION || 'us-east-1';
-        
-        // Validate Connect URL to prevent XSS
-        const validUrlPattern = /^https:\/\/[\w-]+\.(awsapps\.com|my\.connect\.aws)(\/.*)?$/;
-        if (!connectUrl || !validUrlPattern.test(connectUrl)) {
-            console.error('Invalid Connect instance URL');
-            return;
-        }
+        if (ccpInitialized.current) return;
+        if (!connectUrl) return;
+
+        ccpInitialized.current = true;
 
         window.connect.agentApp.initApp(
             "ccp",
             "ccp-container",
-            connectUrl + "/connect/ccp-v2/", { 
-                ccpParams: { 
-                    region: region,
-                    loginPopup: true,               // Enable login popup for SAML authentication
-                    loginPopupAutoClose: true,      // Auto-close popup after SAML login
-                    loginUrl: connectUrl + "/connect/login", // SAML login URL
+            connectUrl + "/connect/ccp-v2/",
+            {
+                ccpParams: {
+                    region,
+                    loginPopup: true,
+                    loginPopupAutoClose: true,
+                    loginUrl: connectUrl + "/connect/login",
                     softphone: {
                         allowFramedSoftphone: true,
                         disableRingtone: false
-                    },
-                    pageOptions: {
-                        enableAudioDeviceSettings: true,
-                        enablePhoneTypeSettings: true
                     }
-                } 
+                }
             }
         );
+
         subscribeConnectEvents();
+
     }, []);
 
     return (
         <main>
-          <Grid columns='equal' stackable padded>
-          <Grid.Row>
-            {/* CCP window will load here */}
-            <div id="ccp-container"></div>
-            {/* Translate window will laod here. We pass the agent state to be able to use this to push messages to CCP */}
-            <div id="chatroom" ><Chatroom session={agentChatSessionState}/> </div> 
-            </Grid.Row>
-          </Grid>
+            <Grid columns='equal' stackable padded>
+
+                <Grid.Row>
+
+                    <div id="ccp-container"></div>
+
+                    <div id="chatroom">
+                        <Chatroom session={agentChatSessionState} />
+                    </div>
+
+                </Grid.Row>
+
+            </Grid>
         </main>
     );
 };
