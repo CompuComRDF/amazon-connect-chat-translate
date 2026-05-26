@@ -23,3 +23,9 @@ frontend:
   cache:
     paths:
       - node_modules/**/*
+
+customHeaders:
+  - pattern: '**/*'
+    headers:
+      - key: Permissions-Policy
+        value: microphone=(self "https://uatrdf-genesysdr.my.connect.aws"), camera=(self "https://uatrdf-genesysdr.my.connect.aws"), autoplay=(self "https://uatrdf-genesysdr.my.connect.aws")
