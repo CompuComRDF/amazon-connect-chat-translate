@@ -210,6 +210,10 @@ const Ccp = () => {
                     disableRingtone: false
                 },
 
+                iframeOptions: {
+                    allow: "microphone; camera; autoplay; clipboard-read; clipboard-write"
+                },
+
                 pageOptions: {
                     enableAudioDeviceSettings: true,
                     enablePhoneTypeSettings: true,
