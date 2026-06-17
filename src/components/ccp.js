@@ -36,25 +36,61 @@ const Ccp = () => {
     const [setRefreshChild] = useState([]);
 
     const ccpInitialized = useRef(false);
-    const processedCustomerMessages = useRef(new Set());
+
+    // Keep current global state available inside async callbacks/listeners.
     const languageTranslateRef = useRef([]);
+    const processedCustomerMessages = useRef(new Set());
 
     useEffect(() => {
         languageTranslateRef.current = languageTranslate;
     }, [languageTranslate]);
 
     function rememberAgentChatSession(contactId, agentChatSession) {
+        if (!contactId || !agentChatSession) return;
+
         setAgentChatSessionState(prev => {
             const exists = prev.some(obj => Object.prototype.hasOwnProperty.call(obj, contactId));
             if (exists) {
-                return prev.map(obj => Object.prototype.hasOwnProperty.call(obj, contactId) ? { [contactId]: agentChatSession } : obj);
+                return prev.map(obj =>
+                    Object.prototype.hasOwnProperty.call(obj, contactId)
+                        ? { [contactId]: agentChatSession }
+                        : obj
+                );
             }
             return [...prev, { [contactId]: agentChatSession }];
         });
     }
 
     function getMessageDedupeKey(contactId, content, messageId, timestamp) {
-        return `${contactId}|${messageId || timestamp || ''}|${content}`;
+        return `${contactId || ''}|${messageId || ''}|${timestamp || ''}|${content || ''}`;
+    }
+
+    function normalizeTranscriptItems(response) {
+        // ChatJS wraps GetTranscript response under response.data.Transcript.
+        // Some versions / wrappers may expose Transcript directly, so support both.
+        return (
+            response?.data?.Transcript ||
+            response?.Transcript ||
+            response?.transcript ||
+            response?.data?.transcript ||
+            []
+        );
+    }
+
+    function isCustomerMessage(item) {
+        const participantRole = (item.ParticipantRole || item.participantRole || '').toUpperCase();
+        const type = (item.Type || item.type || '').toUpperCase();
+        const contentType = (item.ContentType || item.contentType || '').toLowerCase();
+        const content = item.Content || item.content;
+
+        return (
+            participantRole === 'CUSTOMER' &&
+            content &&
+            (
+                type === 'MESSAGE' ||
+                contentType === 'text/plain'
+            )
+        );
     }
 
     // ---------------------------
@@ -63,67 +99,115 @@ const Ccp = () => {
     function getEvents(contact, agentChatSession) {
         contact.getAgentConnection().getMediaController().then(controller => {
             controller.onMessage(messageData => {
+                console.log(
+                    "MESSAGE RECEIVED",
+                    contact.contactId,
+                    messageData.data.Content
+                );
 
-                if (messageData.chatDetails.participantId === messageData.data.ParticipantId) {
-                    console.log("AGENT:", messageData.data.Content);
+                console.log("FULL MESSAGE DATA", messageData);
+                
+                const data = messageData?.data || {};
+                const content = data.Content;
+                const contactId = data.ContactId || contact.contactId;
+
+                if (!content) return;
+
+                if (messageData.chatDetails.participantId === data.ParticipantId) {
+                    console.log("AGENT:", content);
                 } else {
-                    console.log("CUSTOMER:", messageData.data.Content);
+                    console.log("CUSTOMER:", content);
 
                     const key = getMessageDedupeKey(
-                        messageData.data.ContactId,
-                        messageData.data.Content,
-                        messageData.data.Id,
-                        messageData.data.AbsoluteTime
+                        contactId,
+                        content,
+                        data.Id,
+                        data.AbsoluteTime
                     );
 
                     if (processedCustomerMessages.current.has(key)) return;
                     processedCustomerMessages.current.add(key);
 
                     processChatText(
-                        messageData.data.Content,
-                        messageData.data.Type,
-                        messageData.data.ContactId
+                        content,
+                        data.Type || 'MESSAGE',
+                        contactId
                     );
                 }
             });
         });
     }
 
-    async function processExistingTranscript(contact, agentChatSession) {
+    async function processExistingTranscript(contact, agentChatSession, attempt = 1) {
         if (!agentChatSession || typeof agentChatSession.getTranscript !== 'function') {
             console.warn("Chat session does not expose getTranscript; skipping startup transcript processing.");
             return;
         }
 
         try {
+            console.log(`Loading existing chat transcript for ${contact.contactId}. Attempt ${attempt}`);
+
             const response = await agentChatSession.getTranscript({
+                maxResults: 100,
                 scanDirection: "BACKWARD",
-                sortOrder: "ASCENDING",
-                maxResults: 100
+                sortOrder: "ASCENDING"
             });
 
-            const transcript = response?.Transcript || response?.transcript || [];
+            const transcript = normalizeTranscriptItems(response);
+            console.log("Existing transcript items found:", transcript.length, response);
+
+            let processedAny = false;
 
             for (const item of transcript) {
-                const participantRole = item.ParticipantRole || item.participantRole;
-                const type = item.Type || item.type;
+                if (!isCustomerMessage(item)) continue;
+
                 const content = item.Content || item.content;
                 const contactId = item.ContactId || item.contactId || contact.contactId;
                 const messageId = item.Id || item.id;
                 const timestamp = item.AbsoluteTime || item.absoluteTime;
-
-                if (participantRole !== "CUSTOMER") continue;
-                if (type !== "MESSAGE") continue;
-                if (!content) continue;
+                const type = item.Type || item.type || 'MESSAGE';
 
                 const key = getMessageDedupeKey(contactId, content, messageId, timestamp);
                 if (processedCustomerMessages.current.has(key)) continue;
                 processedCustomerMessages.current.add(key);
 
+                processedAny = true;
                 await processChatText(content, type, contactId);
+            }
+
+            // Sometimes transcript is not immediately hydrated when the agent connection first opens.
+            // Retry briefly so messages sent before agent accept are picked up without waiting for a new customer message.
+            if (!processedAny && attempt < 5) {
+                setTimeout(() => processExistingTranscript(contact, agentChatSession, attempt + 1), 1000);
             }
         } catch (err) {
             console.warn("Unable to process existing transcript:", err);
+
+            if (attempt < 5) {
+                setTimeout(() => processExistingTranscript(contact, agentChatSession, attempt + 1), 1000);
+            }
+        }
+    }
+
+    async function initializeChatContact(contact) {
+        try {
+            const cnn = contact
+                .getConnections()
+                .find(c => c.getType() === window.connect.ConnectionType.AGENT);
+
+            if (!cnn) {
+                console.warn("No agent connection found for contact:", contact.contactId);
+                return;
+            }
+
+            const agentChatSession = await cnn.getMediaController();
+
+            setCurrentContactId(contact.contactId);
+            rememberAgentChatSession(contact.contactId, agentChatSession);
+            getEvents(contact, agentChatSession);
+            processExistingTranscript(contact, agentChatSession);
+        } catch (err) {
+            console.error("initializeChatContact error:", err);
         }
     }
 
@@ -131,6 +215,8 @@ const Ccp = () => {
     // PROCESS INCOMING CHAT
     // ---------------------------
     async function processChatText(content, type, contactId) {
+
+        if (!content || !contactId) return;
 
         let textLang = '';
 
@@ -188,29 +274,11 @@ const Ccp = () => {
             window.connect.contact(contact => {
 
                 contact.onAccepted(async () => {
-
-                    const cnn = contact
-                        .getConnections()
-                        .find(c => c.getType() === window.connect.ConnectionType.AGENT);
-
-                    const agentChatSession = await cnn.getMediaController();
-
-                    setCurrentContactId(contact.contactId);
-
-                    rememberAgentChatSession(contact.contactId, agentChatSession);
+                    await initializeChatContact(contact);
                 });
 
                 contact.onConnected(async () => {
-                    const cnn = contact
-                        .getConnections()
-                        .find(c => c.getType() === window.connect.ConnectionType.AGENT);
-
-                    const agentChatSession = await cnn.getMediaController();
-
-                    setCurrentContactId(contact.contactId);
-                    rememberAgentChatSession(contact.contactId, agentChatSession);
-                    getEvents(contact, agentChatSession);
-                    await processExistingTranscript(contact, agentChatSession);
+                    await initializeChatContact(contact);
                 });
 
                 contact.onRefresh(() => {
@@ -237,35 +305,6 @@ const Ccp = () => {
         if (!connectUrl) return;
 
         ccpInitialized.current = true;
-
-        //window.connect.agentApp.initApp(
-        //    "ccp",
-        //    "ccp-container",
-        //    //connectUrl + "/connect/ccp-v2/",
-        //    connectUrl + "/ccp-v2/",
-        //    {
-        //        ccpParams: {
-        //            region,
-        //            loginPopup: true,
-        //            loginPopupAutoClose: true,
-        //            //loginUrl: connectUrl + "/connect/login",
-        //            loginUrl: connectUrl + "/login",
-        //            softphone: {
-        //                allowFramedSoftphone: true,
-        //                allowEarlyGum: true,
-        //                disableRingtone: false,
-        //                allowMicrophoneAccess: true,
-        //                allowVideoDeviceAccess: true
-        //            },
-
-        //            pageOptions: {
-        //                enableAudioDeviceSettings: true,
-        //                enablePhoneTypeSettings: true,
-        //                enableVideoDeviceSettings: true
-        //            }                    
-        //        }
-        //    }
-        //);
 
         window.connect.core.initCCP(
             document.getElementById("ccp-container"),
