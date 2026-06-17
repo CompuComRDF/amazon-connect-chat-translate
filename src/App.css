@@ -3,10 +3,9 @@
   width: 330px;
   min-width: 260px;
   min-height: 350px;
-  padding-top: 15px;
-  padding-left: 15px;
+  padding:0;
   resize: both;
-  overflow: auto;
+  overflow: hidden;
   box-sizing: border-box;
 }
 
