@@ -1,13 +1,41 @@
+.App {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ccp-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 15px;
+  padding: 15px;
+  flex-wrap: wrap;
+}
+
 #ccp-container {
-  height:500px;
-  padding-top: 15px;
-  padding-left: 15px;
   width: 330px;
+  height: 500px;
+  min-width: 260px;
+  min-height: 350px;
+  resize: both;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: #ffffff;
+  border: 1px solid #c8c8c8;
+}
+
+#ccp-container iframe {
+  width: 100% !important;
+  height: 100% !important;
+  border: 0;
+}
+
+#chatroom {
+  min-width: 260px;
+  min-height: 350px;
 }
 
 .ui.toggle.checkbox input:checked ~ .box:before,
 .ui.toggle.checkbox input:checked ~ .coloring.red:before {
-background: #F25F5C !important;
+  background: #F25F5C !important;
 }
-
-

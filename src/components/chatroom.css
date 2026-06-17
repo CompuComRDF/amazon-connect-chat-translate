@@ -4,48 +4,39 @@ body {
 
 p {
   margin: 0;
-
-}
-
-#chatroom {
-  height:485px;
-  padding-top: 15px;
-  padding-left: 15px;
-}
-
-.App {
-
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .chatroom {
   width: 335px;
   height: 485px;
+  min-width: 260px;
+  min-height: 350px;
+  resize: both;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   background-color: #FFFFFF;
   border-radius: 5px;
-  overflow: hidden;
   box-shadow: 0 0 8px 0 rgba(0,0,0, 0.3);
 }
 
 .chatroom h3 {
+  flex: 0 0 40px;
   background-color: #4A4A4A;
   color: #FFF;
   margin: 0;
-  height: 40px;
   font-size: 20px;
-  display: flex; 
+  display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .chatroom .chats {
+  flex: 1 1 auto;
   box-sizing: border-box;
   padding: 0 20px;
   margin: 10px 0 0;
-  height: 395px;
-  overflow-y: scroll;
+  overflow-y: auto;
 }
 
 .chatroom .chats .chat {
@@ -58,11 +49,9 @@ p {
   float: left;
   clear: both;
   margin: 10px 0;
-  width: 250px;
+  width: min(250px, calc(100% - 26px));
   overflow-wrap: break-word;
 }
-
-
 
 .chatroom .chats .chat img {
   width: 20px;
@@ -90,7 +79,7 @@ p {
 }
 
 .chatroom .input {
-  height: 40px;
+  flex: 0 0 40px;
   width: 100%;
   background: #4A4A4A;
   display: flex;
