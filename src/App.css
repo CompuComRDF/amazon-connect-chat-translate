@@ -1,13 +1,12 @@
 #ccp-container {
-  height: 500px;
+  height:500px;
   padding-top: 15px;
   padding-left: 15px;
   width: 330px;
   min-width: 260px;
   min-height: 350px;
   resize: both;
-  overflow: hidden;
-  box-sizing: border-box;
+  overflow: auto;
 }
 
 #ccp-container iframe {
