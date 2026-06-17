@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { Grid } from 'semantic-ui-react';
 import { Amplify } from 'aws-amplify';
 import awsconfig from '../aws-exports';
 import Chatroom from './chatroom';
@@ -223,15 +224,19 @@ const Ccp = () => {
 
     return (
         <main>
-            <div className="ccp-layout">
+            <Grid columns='equal' stackable padded>
 
-                <div id="ccp-container"></div>
+                <Grid.Row>
 
-                <div id="chatroom">
-                    <Chatroom session={agentChatSessionState} />
-                </div>
+                    <div id="ccp-container"></div>
 
-            </div>
+                    <div id="chatroom">
+                        <Chatroom session={agentChatSessionState} />
+                    </div>
+
+                </Grid.Row>
+
+            </Grid>
         </main>
     );
 };
