@@ -14,8 +14,8 @@ p {
   padding-top: 15px;
   padding-left: 15px;
   resize: both;
-  overflow: auto;
-  box-sizing: content-box;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .App {
