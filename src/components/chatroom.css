@@ -23,13 +23,10 @@ p {
 .chatroom {
   width: 335px;
   height: 485px;
-  min-width: 260px;
-  min-height: 350px;
   background-color: #FFFFFF;
   border-radius: 5px;
   overflow: hidden;
   box-shadow: 0 0 8px 0 rgba(0,0,0, 0.3);
-  resize: both;
 }
 
 .chatroom h3 {
@@ -47,9 +44,8 @@ p {
   box-sizing: border-box;
   padding: 0 20px;
   margin: 10px 0 0;
-  height: calc(100% - 90px);
-  min-height: 260px;
-  overflow-y: auto;
+  height: 395px;
+  overflow-y: scroll;
 }
 
 .chatroom .chats .chat {
