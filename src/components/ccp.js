@@ -36,6 +36,26 @@ const Ccp = () => {
     const [setRefreshChild] = useState([]);
 
     const ccpInitialized = useRef(false);
+    const processedCustomerMessages = useRef(new Set());
+    const languageTranslateRef = useRef([]);
+
+    useEffect(() => {
+        languageTranslateRef.current = languageTranslate;
+    }, [languageTranslate]);
+
+    function rememberAgentChatSession(contactId, agentChatSession) {
+        setAgentChatSessionState(prev => {
+            const exists = prev.some(obj => Object.prototype.hasOwnProperty.call(obj, contactId));
+            if (exists) {
+                return prev.map(obj => Object.prototype.hasOwnProperty.call(obj, contactId) ? { [contactId]: agentChatSession } : obj);
+            }
+            return [...prev, { [contactId]: agentChatSession }];
+        });
+    }
+
+    function getMessageDedupeKey(contactId, content, messageId, timestamp) {
+        return `${contactId}|${messageId || timestamp || ''}|${content}`;
+    }
 
     // ---------------------------
     // CHAT EVENT HANDLING
@@ -48,6 +68,17 @@ const Ccp = () => {
                     console.log("AGENT:", messageData.data.Content);
                 } else {
                     console.log("CUSTOMER:", messageData.data.Content);
+
+                    const key = getMessageDedupeKey(
+                        messageData.data.ContactId,
+                        messageData.data.Content,
+                        messageData.data.Id,
+                        messageData.data.AbsoluteTime
+                    );
+
+                    if (processedCustomerMessages.current.has(key)) return;
+                    processedCustomerMessages.current.add(key);
+
                     processChatText(
                         messageData.data.Content,
                         messageData.data.Type,
@@ -58,6 +89,44 @@ const Ccp = () => {
         });
     }
 
+    async function processExistingTranscript(contact, agentChatSession) {
+        if (!agentChatSession || typeof agentChatSession.getTranscript !== 'function') {
+            console.warn("Chat session does not expose getTranscript; skipping startup transcript processing.");
+            return;
+        }
+
+        try {
+            const response = await agentChatSession.getTranscript({
+                scanDirection: "BACKWARD",
+                sortOrder: "ASCENDING",
+                maxResults: 100
+            });
+
+            const transcript = response?.Transcript || response?.transcript || [];
+
+            for (const item of transcript) {
+                const participantRole = item.ParticipantRole || item.participantRole;
+                const type = item.Type || item.type;
+                const content = item.Content || item.content;
+                const contactId = item.ContactId || item.contactId || contact.contactId;
+                const messageId = item.Id || item.id;
+                const timestamp = item.AbsoluteTime || item.absoluteTime;
+
+                if (participantRole !== "CUSTOMER") continue;
+                if (type !== "MESSAGE") continue;
+                if (!content) continue;
+
+                const key = getMessageDedupeKey(contactId, content, messageId, timestamp);
+                if (processedCustomerMessages.current.has(key)) continue;
+                processedCustomerMessages.current.add(key);
+
+                await processChatText(content, type, contactId);
+            }
+        } catch (err) {
+            console.warn("Unable to process existing transcript:", err);
+        }
+    }
+
     // ---------------------------
     // PROCESS INCOMING CHAT
     // ---------------------------
@@ -65,9 +134,11 @@ const Ccp = () => {
 
         let textLang = '';
 
-        for (let i = 0; i < languageTranslate.length; i++) {
-            if (languageTranslate[i].contactId === contactId) {
-                textLang = languageTranslate[i].lang;
+        const languageMap = [...languageTranslateRef.current];
+
+        for (let i = 0; i < languageMap.length; i++) {
+            if (languageMap[i].contactId === contactId) {
+                textLang = languageMap[i].lang;
                 break;
             }
         }
@@ -82,12 +153,13 @@ const Ccp = () => {
             lang: textLang
         };
 
-        const exists = languageTranslate.findIndex(x => x.contactId === contactId);
+        const exists = languageMap.findIndex(x => x.contactId === contactId);
 
-        if (exists > -1) languageTranslate[exists] = updated;
-        else languageTranslate.push(updated);
+        if (exists > -1) languageMap[exists] = updated;
+        else languageMap.push(updated);
 
-        setLanguageTranslate([...languageTranslate]);
+        languageTranslateRef.current = languageMap;
+        setLanguageTranslate([...languageMap]);
 
         const translatedMessage = await translateText(content, textLang, 'en');
 
@@ -125,10 +197,7 @@ const Ccp = () => {
 
                     setCurrentContactId(contact.contactId);
 
-                    setAgentChatSessionState(prev => [
-                        ...prev,
-                        { [contact.contactId]: agentChatSession }
-                    ]);
+                    rememberAgentChatSession(contact.contactId, agentChatSession);
                 });
 
                 contact.onConnected(async () => {
@@ -138,7 +207,10 @@ const Ccp = () => {
 
                     const agentChatSession = await cnn.getMediaController();
 
+                    setCurrentContactId(contact.contactId);
+                    rememberAgentChatSession(contact.contactId, agentChatSession);
                     getEvents(contact, agentChatSession);
+                    await processExistingTranscript(contact, agentChatSession);
                 });
 
                 contact.onRefresh(() => {

@@ -1,12 +1,22 @@
 #ccp-container {
-  height:500px;
+  height: 500px;
+  width: 330px;
+  min-width: 260px;
+  min-height: 350px;
   padding-top: 15px;
   padding-left: 15px;
-  width: 330px;
+  resize: both;
+  overflow: auto;
+  box-sizing: border-box;
+}
+
+#ccp-container iframe {
+  width: 100% !important;
+  height: 100% !important;
+  border: 0;
 }
 
 .ui.toggle.checkbox input:checked ~ .box:before,
 .ui.toggle.checkbox input:checked ~ .coloring.red:before {
-background: #F25F5C !important;
+  background: #F25F5C !important;
 }
-
