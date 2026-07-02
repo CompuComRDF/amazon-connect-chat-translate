@@ -29,11 +29,15 @@ export function getConnectConfig() {
     }
 
     const connectUrl = `https://${instance}.my.connect.aws`;
+    const loginUrl =
+    params.get("ssoLoginUrl") ||
+    params.get("loginUrl") ||
+    `${connectUrl}/login`;
 
     return {
         env: instance,
         connectUrl,
-        loginUrl: SSO_LOGIN_URLS_BY_INSTANCE[instance] || `${connectUrl}/login`,
+        loginUrl,
         region
     };
 }
