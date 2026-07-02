@@ -310,10 +310,11 @@ const Ccp = () => {
         window.connect.core.initCCP(
             document.getElementById("ccp-container"),
             {
-                ccpUrl: connectUrl + "/ccp-v2/softphone",
+                //ccpUrl: connectUrl + "/ccp-v2/softphone",
+                ccpUrl: connectUrl + "/ccp-v2/",
                 region,
                 loginPopup: true,
-                loginPopupAutoClose: true,
+                loginPopupAutoClose: false,
                 //loginUrl: connectUrl + "/login",
                 loginUrl,
 
