@@ -6,10 +6,8 @@ import reportWebVitals from './reportWebVitals';
 import "amazon-connect-streams";
 import "amazon-connect-chatjs";
 
-// Import semantic
 import 'semantic-ui-less/semantic.less';
 
-// Amplify imports for base install
 import { Amplify } from "aws-amplify";
 import awsExports from "./aws-exports";
 
@@ -31,16 +29,20 @@ if (window.__CCP_LAUNCHER_MODE__) {
   document.getElementById('root').innerHTML = `
     <div style="font-family: Arial, sans-serif; padding: 40px;">
       <h2>Launching Amazon Connect...</h2>
-      <p>Complete the Amazon Connect login in the separate window, then return here and click Continue.</p>
-      <button id="continue">Continue to CCP</button>
+      <p>Complete the Amazon Connect login, then return here and click Continue.</p>
+      <button id="continue" style="margin-left: 10px;">Continue to CCP</button>
     </div>
   `;
 
-  window.open(ssoUrl, "connect_sso", "width=1100,height=800");
+  document.getElementById("login").onclick = () => {
+    window.open(ssoUrl, "connect_sso", "width=1100,height=800");
+  };
 
   document.getElementById("continue").onclick = () => {
     window.location.href = ccpUrl;
   };
+
+  window.open(ssoUrl, "connect_sso", "width=1100,height=800");
 
 } else {
   ReactDOM.render(
