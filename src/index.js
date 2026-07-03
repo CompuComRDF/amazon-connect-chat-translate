@@ -34,15 +34,12 @@ if (window.__CCP_LAUNCHER_MODE__) {
     </div>
   `;
 
-  document.getElementById("login").onclick = () => {
-    window.open(ssoUrl, "connect_sso", "width=1100,height=800");
-  };
+  window.open(ssoUrl, "connect_sso", "width=1100,height=800");
 
   document.getElementById("continue").onclick = () => {
     window.location.href = ccpUrl;
   };
 
-  window.open(ssoUrl, "connect_sso", "width=1100,height=800");
 
 } else {
   ReactDOM.render(
