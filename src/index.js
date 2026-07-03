@@ -3,30 +3,55 @@ import ReactDOM from 'react-dom';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
-import "amazon-connect-streams"; // This will make the `connect` available in the current context.
+import "amazon-connect-streams";
 import "amazon-connect-chatjs";
 
-
-// Import semantic
 import 'semantic-ui-less/semantic.less';
 
-// Amplify imports for base install
 import { Amplify } from "aws-amplify";
 import awsExports from "./aws-exports";
+
 Amplify.configure(awsExports);
-// 
 
+if (window.__CCP_LAUNCHER_MODE__) {
+  const params = new URLSearchParams(window.location.search);
+  const instance = params.get("instance") || "uatrdf-genesysdr";
+  const region = params.get("region") || "us-east-1";
 
+  const ssoUrls = {
+    "uatrdf-genesysdr": "https://account.activedirectory.windowsazure.com/applications/signin/3d1e37fc-6119-4055-921a-6fae7e40c2f6?tenantId=fa462fb8-0560-430e-8331-6a29355f95ca",
+    "prodrdf-genesysdr": "https://account.activedirectory.windowsazure.com/applications/signin/99a68e1b-b1f9-4e73-b185-92a5f0567646?tenantId=fa462fb8-0560-430e-8331-6a29355f95ca"
+  };
 
-ReactDOM.render(
-  <React.StrictMode>
-    <App />
+  const ssoUrl = ssoUrls[instance];
+  const ccpUrl = `/?instance=${encodeURIComponent(instance)}&region=${encodeURIComponent(region)}`;
 
-  </React.StrictMode>,
-  document.getElementById('root')
-);
+  document.getElementById('root').innerHTML = `
+    <div style="font-family: Arial, sans-serif; padding: 40px;">
+      <h2>Launching Amazon Connect...</h2>
+      <p>Complete the Amazon Connect login, then return here and click Continue.</p>
+      <button id="login">Open Amazon Connect Login</button>
+      <button id="continue" style="margin-left: 10px;">Continue to CCP</button>
+    </div>
+  `;
 
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
-reportWebVitals();
+  document.getElementById("login").onclick = () => {
+    window.open(ssoUrl, "connect_sso", "width=1100,height=800");
+  };
+
+  document.getElementById("continue").onclick = () => {
+    window.location.href = ccpUrl;
+  };
+
+  window.open(ssoUrl, "connect_sso", "width=1100,height=800");
+
+} else {
+  ReactDOM.render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+    document.getElementById('root')
+  );
+
+  reportWebVitals();
+}
