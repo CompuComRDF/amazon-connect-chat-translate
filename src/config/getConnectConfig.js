@@ -1,3 +1,8 @@
+const SSO_LOGIN_URLS_BY_INSTANCE = {
+    "uatrdf-genesysdr": "https://us-east-1.console.aws.amazon.com/connect/federate/b976f223-5ca9-4445-9a6f-d890d8dee0cd", 
+    "prodrdf-genesysdr": "https://us-east-1.console.aws.amazon.com/connect/federate/894c5ab7-3400-4001-b3d9-797f65f10ecf" 
+    };
+
 export function getConnectConfig() {
     const params = new URLSearchParams(window.location.search);
 
@@ -25,6 +30,7 @@ export function getConnectConfig() {
     return {
         env: instance,
         connectUrl,
+        loginUrl: SSO_LOGIN_URLS_BY_INSTANCE[instance],
         region
     };
 }
