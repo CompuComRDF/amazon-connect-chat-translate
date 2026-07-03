@@ -124,16 +124,31 @@ if (window.__CCP_LAUNCHER_MODE__) {
   let ssoWindow = null;
 
   function openSsoWindow() {
-    const width = 640;
-    const height = 680;
-    const left = Math.max(0, window.screenX + ((window.outerWidth - width) / 2));
-    const top = Math.max(0, window.screenY + ((window.outerHeight - height) / 2));
+    const width = 700;
+    const height = 760;
+
+    const launcherCenterX = window.screenX + (window.outerWidth / 2);
+    const launcherCenterY = window.screenY + (window.outerHeight / 2);
+
+    const left = Math.max(
+      0,
+      Math.round(launcherCenterX - (width * 0.95))
+    );
+
+    const top = Math.max(
+      0,
+      Math.round(launcherCenterY - (height / 2))
+    );
 
     ssoWindow = window.open(
       ssoUrl,
       "connect_sso",
       `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
     );
+
+    if (ssoWindow) {
+      ssoWindow.focus();
+    }
   }
 
   function enableContinue() {
