@@ -29,21 +29,34 @@ if (window.__CCP_LAUNCHER_MODE__) {
   document.getElementById('root').innerHTML = `
     <div style="font-family: Arial, sans-serif; padding: 40px;">
       <h2>Launching Amazon Connect...</h2>
-      <p>Complete the Amazon Connect login, then return here and click Continue.</p>
-      <button id="login">Open Amazon Connect Login</button>
-      <button id="continue" style="margin-left: 10px;">Continue to CCP</button>
+      <p>Complete the Amazon Connect login. This page will continue when the login window closes.</p>
+      <button id="continue">Continue to CCP</button>
     </div>
   `;
 
-  document.getElementById("login").onclick = () => {
-    window.open(ssoUrl, "connect_sso", "width=1100,height=800");
-  };
+  let ssoWindow = null;
+
+  function openSsoWindow() {
+    ssoWindow = window.open(ssoUrl, "connect_sso", "width=1100,height=800");
+  }
+
+  openSsoWindow();
+
+  const checkClosed = setInterval(() => {
+    if (ssoWindow && ssoWindow.closed) {
+      clearInterval(checkClosed);
+      window.location.href = ccpUrl;
+    }
+  }, 1000);
 
   document.getElementById("continue").onclick = () => {
+    if (ssoWindow && !ssoWindow.closed) {
+      ssoWindow.close();
+    }
+
+    clearInterval(checkClosed);
     window.location.href = ccpUrl;
   };
-
-  window.open(ssoUrl, "connect_sso", "width=1100,height=800");
 
 } else {
   ReactDOM.render(
