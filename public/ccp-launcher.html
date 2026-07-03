@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+  <title>Launching CCP</title>
+</head>
+<body>
+  <h3>Launching Amazon Connect...</h3>
+  <p>Complete the Amazon Connect login, then click Continue.</p>
+
+  <button id="login">Open Amazon Connect Login</button>
+  <button id="continue">Continue to CCP</button>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const instance = params.get("instance") || "uatrdf-genesysdr";
+    const region = params.get("region") || "us-east-1";
+
+    const ssoUrls = {
+      "uatrdf-genesysdr": "https://account.activedirectory.windowsazure.com/applications/signin/3d1e37fc-6119-4055-921a-6fae7e40c2f6?tenantId=fa462fb8-0560-430e-8331-6a29355f95ca",
+      "prodrdf-genesysdr": "https://account.activedirectory.windowsazure.com/applications/signin/99a68e1b-b1f9-4e73-b185-92a5f0567646?tenantId=fa462fb8-0560-430e-8331-6a29355f95ca"
+    };
+
+    const ccpUrl = `/?instance=${encodeURIComponent(instance)}&region=${encodeURIComponent(region)}`;
+
+    document.getElementById("login").onclick = () => {
+      window.open(ssoUrls[instance], "connect_sso", "width=1100,height=800");
+    };
+
+    document.getElementById("continue").onclick = () => {
+      window.location.href = ccpUrl;
+    };
+
+    window.open(ssoUrls[instance], "connect_sso", "width=1100,height=800");
+  </script>
+</body>
+</html>

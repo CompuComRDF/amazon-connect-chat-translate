@@ -24,7 +24,6 @@ const Ccp = () => {
     const config = getConnectConfig();
 
     const connectUrl = config.connectUrl;
-    const loginUrl = config.loginUrl;
     const region = config.region;
 
     const [languageTranslate] = useGlobalState('languageTranslate');
@@ -314,8 +313,7 @@ const Ccp = () => {
                 region,
                 loginPopup: true,
                 loginPopupAutoClose: true,
-                //loginUrl: connectUrl + "/login",
-                loginUrl,
+                loginUrl: connectUrl + "/login",
 
                 softphone: {
                     allowFramedSoftphone: true,
