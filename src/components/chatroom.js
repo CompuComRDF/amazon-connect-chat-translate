@@ -17,6 +17,7 @@ const Chatroom = (props) => {
 
     const messageEl = useRef(null);
     const input = useRef(null);
+    const isSubmitting = useRef(false);
 
     // Normalize contactId (CRITICAL FIX)
     const contactId = Array.isArray(currentContactId)
@@ -82,7 +83,10 @@ const Chatroom = (props) => {
     async function handleSubmit(e) {
         e.preventDefault();
 
-        if (!newMessage.trim()) return;
+        const messageToSend = newMessage.trim();
+
+        // Prevent rapid double-clicks / double-Enter from submitting the same message twice.
+        if (!messageToSend || isSubmitting.current) return;
 
         const destLang = getDestLang();
 
@@ -91,9 +95,14 @@ const Chatroom = (props) => {
             return;
         }
 
+        // Lock submission and clear the composer immediately.
+        // Keep a local copy of the message because React state is now cleared.
+        isSubmitting.current = true;
+        setNewMessage("");
+
         try {
             const result = await translateTextAPI(
-                newMessage,
+                messageToSend,
                 'en',
                 destLang.lang
             );
@@ -111,7 +120,7 @@ const Chatroom = (props) => {
             const messageObject = {
                 contactId,
                 username: agentUsername,
-                content: newMessage,
+                content: messageToSend,
                 translatedMessage: translatedText
             };
 
@@ -125,10 +134,11 @@ const Chatroom = (props) => {
                 console.warn("No session found for:", contactId);
             }
 
-            setNewMessage("");
-
         } catch (err) {
             console.error("handleSubmit error:", err);
+        } finally {
+            isSubmitting.current = false;
+            input.current?.focus();
         }
     }
 
