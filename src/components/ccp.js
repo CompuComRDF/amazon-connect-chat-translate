@@ -28,23 +28,60 @@ const Ccp = () => {
     const region = config.region;
 
     const [languageTranslate] = useGlobalState('languageTranslate');
-    const [Chats] = useGlobalState('Chats');
-    const [lang, setLang] = useState("");
-    const [currentContactId] = useGlobalState('currentContactId');
-    const [languageOptions] = useGlobalState('languageOptions');
-
     const [agentChatSessionState, setAgentChatSessionState] = useState([]);
-    const [setRefreshChild] = useState([]);
 
     const ccpInitialized = useRef(false);
 
     // Keep current global state available inside async callbacks/listeners.
     const languageTranslateRef = useRef([]);
+
+    // Contact/session safeguards.
+    const contactRef = useRef(new Map());
+    const initializedContacts = useRef(new Set());
+    const contactEventListeners = useRef(new Set());
+
+    // Message safeguards. A message is only marked processed AFTER translation/rendering succeeds.
+    const processingCustomerMessages = useRef(new Set());
     const processedCustomerMessages = useRef(new Set());
 
     useEffect(() => {
         languageTranslateRef.current = languageTranslate;
     }, [languageTranslate]);
+
+    const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+    // The hosted chat page can pass locale-style values while Amazon Translate uses a
+    // mixture of base language codes and supported regional variants.
+    const normalizeLanguageCode = (language) => {
+        if (!language) return '';
+
+        const value = String(language).trim();
+        const lower = value.toLowerCase();
+
+        const aliases = {
+            'en-us': 'en',
+            'pt-br': 'pt',
+            'cs-cz': 'cs',
+            'da-dk': 'da',
+            'de-de': 'de',
+            'nl-nl': 'nl',
+            'fi-fi': 'fi',
+            'it-it': 'it',
+            'nb-no': 'no',
+            'pl-pl': 'pl',
+            'ro-ro': 'ro',
+            'sv-se': 'sv',
+            'tr-tr': 'tr',
+            'arb': 'ar',
+            'fr-ca': 'fr-CA',
+            'es-mx': 'es-MX',
+            'zh-tw': 'zh-TW',
+            'fa-af': 'fa-AF',
+            'pt-pt': 'pt-PT'
+        };
+
+        return aliases[lower] || lower;
+    };
 
     function rememberAgentChatSession(contactId, agentChatSession) {
         if (!contactId || !agentChatSession) return;
@@ -94,161 +131,173 @@ const Ccp = () => {
         );
     }
 
-    // ---------------------------
-    // CHAT EVENT HANDLING
-    // ---------------------------
-    function getEvents(contact, agentChatSession) {
-        contact.getAgentConnection().getMediaController().then(controller => {
-            controller.onMessage(messageData => {
-                console.log(
-                    "MESSAGE RECEIVED",
-                    contact.contactId,
-                    messageData.data.Content
-                );
-
-                console.log("FULL MESSAGE DATA", messageData);
-                
-                const data = messageData?.data || {};
-                const content = data.Content;
-                const contactId = data.ContactId || contact.contactId;
-
-                if (!content) return;
-
-                if (messageData.chatDetails.participantId === data.ParticipantId) {
-                    console.log("AGENT:", content);
-                } else {
-                    console.log("CUSTOMER:", content);
-
-                    const key = getMessageDedupeKey(
-                        contactId,
-                        content,
-                        data.Id,
-                        data.AbsoluteTime
-                    );
-
-                    if (processedCustomerMessages.current.has(key)) return;
-                    processedCustomerMessages.current.add(key);
-
-                    processChatText(
-                        content,
-                        data.Type || 'MESSAGE',
-                        contactId
-                    );
-                }
-            });
-        });
+    function getContactLanguage(contactId) {
+        return languageTranslateRef.current.find(x => x.contactId === contactId)?.lang || '';
     }
 
-    async function processExistingTranscript(contact, agentChatSession, attempt = 1) {
-        if (!agentChatSession || typeof agentChatSession.getTranscript !== 'function') {
-            console.warn("Chat session does not expose getTranscript; skipping startup transcript processing.");
-            return;
+    function setContactLanguage(contactId, language, source = 'unknown') {
+        if (!contactId || !language) return '';
+
+        const normalizedLanguage = normalizeLanguageCode(language);
+        if (!normalizedLanguage) return '';
+
+        // Always build from the LATEST ref value. This prevents concurrent chats from
+        // overwriting one another after an async language detection/translation call.
+        const languageMap = [...languageTranslateRef.current];
+        const index = languageMap.findIndex(x => x.contactId === contactId);
+        const updated = { contactId, lang: normalizedLanguage };
+
+        if (index > -1) languageMap[index] = updated;
+        else languageMap.push(updated);
+
+        languageTranslateRef.current = languageMap;
+        setLanguageTranslate([...languageMap]);
+
+        console.log(`Language for ${contactId}: ${normalizedLanguage} (${source})`);
+        return normalizedLanguage;
+    }
+
+    function getAttributeValue(attributes, candidateNames) {
+        if (!attributes) return '';
+
+        for (const candidateName of candidateNames) {
+            const direct = attributes[candidateName];
+            if (direct !== undefined && direct !== null) {
+                if (typeof direct === 'string') return direct;
+                if (direct.value !== undefined) return direct.value;
+                if (direct.Value !== undefined) return direct.Value;
+            }
         }
 
+        // Be tolerant of capitalization differences in custom attributes.
+        const normalizedCandidates = candidateNames.map(name => name.toLowerCase());
+        for (const [key, attribute] of Object.entries(attributes)) {
+            const attributeName = String(attribute?.name || attribute?.Name || key).toLowerCase();
+            if (!normalizedCandidates.includes(attributeName)) continue;
+
+            if (typeof attribute === 'string') return attribute;
+            if (attribute?.value !== undefined) return attribute.value;
+            if (attribute?.Value !== undefined) return attribute.Value;
+        }
+
+        return '';
+    }
+
+    function getConfiguredLanguage(contact) {
         try {
-            console.log(`Loading existing chat transcript for ${contact.contactId}. Attempt ${attempt}`);
+            if (!contact || typeof contact.getAttributes !== 'function') return '';
 
-            const response = await agentChatSession.getTranscript({
-                maxResults: 100,
-                scanDirection: "BACKWARD",
-                sortOrder: "ASCENDING"
-            });
+            const attributes = contact.getAttributes();
+            const language = getAttributeValue(attributes, [
+                'HostedWidget-language',
+                'language',
+                'Language',
+                'connect:Language'
+            ]);
 
-            const transcript = normalizeTranscriptItems(response);
-            console.log("Existing transcript items found:", transcript.length, response);
-
-            let processedAny = false;
-
-            for (const item of transcript) {
-                if (!isCustomerMessage(item)) continue;
-
-                const content = item.Content || item.content;
-                const contactId = item.ContactId || item.contactId || contact.contactId;
-                const messageId = item.Id || item.id;
-                const timestamp = item.AbsoluteTime || item.absoluteTime;
-                const type = item.Type || item.type || 'MESSAGE';
-
-                const key = getMessageDedupeKey(contactId, content, messageId, timestamp);
-                if (processedCustomerMessages.current.has(key)) continue;
-                processedCustomerMessages.current.add(key);
-
-                processedAny = true;
-                await processChatText(content, type, contactId);
-            }
-
-            // Sometimes transcript is not immediately hydrated when the agent connection first opens.
-            // Retry briefly so messages sent before agent accept are picked up without waiting for a new customer message.
-            if (!processedAny && attempt < 5) {
-                setTimeout(() => processExistingTranscript(contact, agentChatSession, attempt + 1), 1000);
-            }
+            return normalizeLanguageCode(language);
         } catch (err) {
-            console.warn("Unable to process existing transcript:", err);
-
-            if (attempt < 5) {
-                setTimeout(() => processExistingTranscript(contact, agentChatSession, attempt + 1), 1000);
-            }
+            console.warn('Unable to read contact language attributes:', err);
+            return '';
         }
     }
 
-    async function initializeChatContact(contact) {
-        try {
-            const cnn = contact
-                .getConnections()
-                .find(c => c.getType() === window.connect.ConnectionType.AGENT);
+    async function hydrateConfiguredLanguage(contact, attempts = 6) {
+        if (!contact?.contactId) return '';
 
-            if (!cnn) {
-                console.warn("No agent connection found for contact:", contact.contactId);
-                return;
+        for (let attempt = 1; attempt <= attempts; attempt++) {
+            const language = getConfiguredLanguage(contact);
+            if (language) {
+                return setContactLanguage(contact.contactId, language, 'contact attribute');
             }
 
-            const agentChatSession = await cnn.getMediaController();
-
-            setCurrentContactId(contact.contactId);
-            rememberAgentChatSession(contact.contactId, agentChatSession);
-            getEvents(contact, agentChatSession);
-            processExistingTranscript(contact, agentChatSession);
-        } catch (err) {
-            console.error("initializeChatContact error:", err);
+            if (attempt < attempts) {
+                await sleep(150 * attempt);
+            }
         }
+
+        return '';
+    }
+
+    async function detectLanguageWithRetry(content, attempts = 3) {
+        let lastError;
+
+        for (let attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                const result = await detectText(content);
+                const language = normalizeLanguageCode(result?.textInterpretation?.language);
+
+                if (language) return language;
+                lastError = new Error('Language detection returned no language.');
+            } catch (err) {
+                lastError = err;
+            }
+
+            if (attempt < attempts) await sleep(250 * attempt);
+        }
+
+        throw lastError || new Error('Unable to detect message language.');
+    }
+
+    async function translateWithRetry(content, sourceLanguage, targetLanguage = 'en', attempts = 3) {
+        if (normalizeLanguageCode(sourceLanguage) === normalizeLanguageCode(targetLanguage)) {
+            return content;
+        }
+
+        let lastError;
+
+        for (let attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                const translated = await translateText(content, sourceLanguage, targetLanguage);
+                if (typeof translated === 'string' && translated.length > 0) return translated;
+
+                lastError = new Error('Translation returned an empty response.');
+            } catch (err) {
+                lastError = err;
+            }
+
+            console.warn(
+                `Translation attempt ${attempt} failed for ${sourceLanguage} -> ${targetLanguage}:`,
+                lastError
+            );
+
+            if (attempt < attempts) await sleep(300 * attempt);
+        }
+
+        throw lastError || new Error('Unable to translate message.');
+    }
+
+    async function resolveLanguageForMessage(contactId, content) {
+        // 1) Existing contact mapping is preferred.
+        let language = getContactLanguage(contactId);
+        if (language) return language;
+
+        // 2) The language attribute passed by the hosted chat page is authoritative.
+        // Give Streams a very short window to hydrate attributes before falling back.
+        const contact = contactRef.current.get(contactId);
+        if (contact) {
+            language = await hydrateConfiguredLanguage(contact, 3);
+            if (language) return language;
+        }
+
+        // 3) Legacy/fallback behavior for chats that do not provide a language attribute.
+        language = await detectLanguageWithRetry(content);
+
+        // An attribute may have arrived while detection was running. If it did, use it.
+        const authoritativeLanguage = getContactLanguage(contactId);
+        if (authoritativeLanguage) return authoritativeLanguage;
+
+        return setContactLanguage(contactId, language, 'language detection');
     }
 
     // ---------------------------
     // PROCESS INCOMING CHAT
     // ---------------------------
     async function processChatText(content, type, contactId) {
+        if (!content || !contactId) return false;
 
-        if (!content || !contactId) return;
-
-        let textLang = '';
-
-        const languageMap = [...languageTranslateRef.current];
-
-        for (let i = 0; i < languageMap.length; i++) {
-            if (languageMap[i].contactId === contactId) {
-                textLang = languageMap[i].lang;
-                break;
-            }
-        }
-
-        if (!textLang) {
-            let tempLang = await detectText(content);
-            textLang = tempLang.textInterpretation.language;
-        }
-
-        const updated = {
-            contactId,
-            lang: textLang
-        };
-
-        const exists = languageMap.findIndex(x => x.contactId === contactId);
-
-        if (exists > -1) languageMap[exists] = updated;
-        else languageMap.push(updated);
-
-        languageTranslateRef.current = languageMap;
-        setLanguageTranslate([...languageMap]);
-
-        const translatedMessage = await translateText(content, textLang, 'en');
+        const textLang = await resolveLanguageForMessage(contactId, content);
+        const translatedMessage = await translateWithRetry(content, textLang, 'en');
 
         addChat(prev => [
             ...prev,
@@ -259,6 +308,176 @@ const Ccp = () => {
                 translatedMessage
             }
         ]);
+
+        return true;
+    }
+
+    async function processCustomerMessageOnce({
+        contactId,
+        content,
+        messageId,
+        timestamp,
+        type = 'MESSAGE'
+    }) {
+        if (!contactId || !content) return false;
+
+        const key = getMessageDedupeKey(contactId, content, messageId, timestamp);
+
+        if (processedCustomerMessages.current.has(key)) return true;
+        if (processingCustomerMessages.current.has(key)) return false;
+
+        processingCustomerMessages.current.add(key);
+
+        try {
+            const processed = await processChatText(content, type, contactId);
+            if (processed) processedCustomerMessages.current.add(key);
+            return processed;
+        } catch (err) {
+            // Do NOT mark the message processed on failure. Startup transcript sync can retry it.
+            console.error('Unable to process/translate customer message:', err, {
+                contactId,
+                messageId,
+                content
+            });
+            return false;
+        } finally {
+            processingCustomerMessages.current.delete(key);
+        }
+    }
+
+    // ---------------------------
+    // CHAT EVENT HANDLING
+    // ---------------------------
+    async function getEvents(contact, agentChatSession) {
+        if (!contact?.contactId || contactEventListeners.current.has(contact.contactId)) return;
+
+        try {
+            const controller = agentChatSession || await contact.getAgentConnection().getMediaController();
+            if (!controller) return;
+
+            contactEventListeners.current.add(contact.contactId);
+
+            controller.onMessage(async messageData => {
+                const data = messageData?.data || {};
+                const content = data.Content;
+                const contactId = data.ContactId || contact.contactId;
+
+                if (!content) return;
+
+                console.log('MESSAGE RECEIVED', contactId, content);
+                console.log('FULL MESSAGE DATA', messageData);
+
+                const participantRole = (data.ParticipantRole || '').toUpperCase();
+                const agentParticipantId = messageData?.chatDetails?.participantId;
+                const isAgentMessage = participantRole === 'AGENT' ||
+                    (agentParticipantId && agentParticipantId === data.ParticipantId);
+
+                if (isAgentMessage) {
+                    console.log('AGENT:', content);
+                    return;
+                }
+
+                // If ParticipantRole is present, only process CUSTOMER messages.
+                if (participantRole && participantRole !== 'CUSTOMER') return;
+
+                console.log('CUSTOMER:', content);
+
+                await processCustomerMessageOnce({
+                    contactId,
+                    content,
+                    messageId: data.Id,
+                    timestamp: data.AbsoluteTime,
+                    type: data.Type || 'MESSAGE'
+                });
+            });
+        } catch (err) {
+            console.error('Unable to subscribe to chat message events:', err);
+        }
+    }
+
+    async function processExistingTranscript(contact, agentChatSession, attempt = 1) {
+        if (!agentChatSession || typeof agentChatSession.getTranscript !== 'function') {
+            console.warn('Chat session does not expose getTranscript; skipping startup transcript processing.');
+            return;
+        }
+
+        try {
+            console.log(`Loading existing chat transcript for ${contact.contactId}. Attempt ${attempt}`);
+
+            const response = await agentChatSession.getTranscript({
+                maxResults: 100,
+                scanDirection: 'BACKWARD',
+                sortOrder: 'ASCENDING'
+            });
+
+            const transcript = normalizeTranscriptItems(response);
+            console.log('Existing transcript items found:', transcript.length, response);
+
+            for (const item of transcript) {
+                if (!isCustomerMessage(item)) continue;
+
+                await processCustomerMessageOnce({
+                    contactId: item.ContactId || item.contactId || contact.contactId,
+                    content: item.Content || item.content,
+                    messageId: item.Id || item.id,
+                    timestamp: item.AbsoluteTime || item.absoluteTime,
+                    type: item.Type || item.type || 'MESSAGE'
+                });
+            }
+        } catch (err) {
+            console.warn('Unable to process existing transcript:', err);
+        }
+
+        // Always perform a few short startup re-syncs. The transcript can hydrate after
+        // the agent connection opens; dedupe guards make these retries safe.
+        if (attempt < 5 && initializedContacts.current.has(contact.contactId)) {
+            setTimeout(
+                () => processExistingTranscript(contact, agentChatSession, attempt + 1),
+                750 * attempt
+            );
+        }
+    }
+
+    async function initializeChatContact(contact) {
+        if (!contact?.contactId) return;
+
+        contactRef.current.set(contact.contactId, contact);
+
+        // Read the customer-selected language as early as possible. This also runs before
+        // the media session is ready, so the language label can be correct immediately.
+        hydrateConfiguredLanguage(contact).catch(err =>
+            console.warn('Unable to hydrate contact language:', err)
+        );
+
+        if (initializedContacts.current.has(contact.contactId)) return;
+
+        try {
+            const cnn = contact
+                .getConnections()
+                .find(c => c.getType() === window.connect.ConnectionType.AGENT);
+
+            if (!cnn) {
+                console.log('Agent connection not ready yet for:', contact.contactId);
+                return;
+            }
+
+            const agentChatSession = await cnn.getMediaController();
+            if (!agentChatSession) return;
+
+            // Mark initialized only after the media controller exists.
+            initializedContacts.current.add(contact.contactId);
+
+            setCurrentContactId(contact.contactId);
+            rememberAgentChatSession(contact.contactId, agentChatSession);
+
+            await getEvents(contact, agentChatSession);
+
+            // Start transcript translation immediately. Do not wait for a future customer
+            // message to trigger the translation panel.
+            processExistingTranscript(contact, agentChatSession);
+        } catch (err) {
+            console.error('initializeChatContact error:', err);
+        }
     }
 
     // ---------------------------
@@ -273,6 +492,11 @@ const Ccp = () => {
         if (window.connect.ChatSession) {
 
             window.connect.contact(contact => {
+                contactRef.current.set(contact.contactId, contact);
+
+                // Try immediately so contact attributes can be read before acceptance and,
+                // where the media controller is already available, translation can start now.
+                initializeChatContact(contact);
 
                 contact.onAccepted(async () => {
                     await initializeChatContact(contact);
@@ -283,10 +507,21 @@ const Ccp = () => {
                 });
 
                 contact.onRefresh(() => {
-                    console.log("Refresh:", contact.contactId);
+                    console.log('Refresh:', contact.contactId);
+                    contactRef.current.set(contact.contactId, contact);
+
+                    // Re-read authoritative attributes on refresh without depending on the refresh
+                    // to fix state. Normally this simply confirms the existing language.
+                    hydrateConfiguredLanguage(contact).catch(err =>
+                        console.warn('Unable to refresh contact language:', err)
+                    );
                 });
 
                 contact.onDestroy(() => {
+                    initializedContacts.current.delete(contact.contactId);
+                    contactEventListeners.current.delete(contact.contactId);
+                    contactRef.current.delete(contact.contactId);
+
                     clearChat();
                     setCurrentContactId('');
                 });
@@ -308,13 +543,13 @@ const Ccp = () => {
         ccpInitialized.current = true;
 
         window.connect.core.initCCP(
-            document.getElementById("ccp-container"),
+            document.getElementById('ccp-container'),
             {
-                ccpUrl: connectUrl + "/ccp-v2/softphone",
+                ccpUrl: connectUrl + '/ccp-v2/softphone',
                 region,
                 loginPopup: true,
                 loginPopupAutoClose: true,
-                //loginUrl: connectUrl + "/login",
+                //loginUrl: connectUrl + '/login',
                 loginUrl,
 
                 softphone: {
@@ -341,9 +576,9 @@ const Ccp = () => {
 
                 <Grid.Row>
 
-                    <div id="ccp-container"></div>
+                    <div id='ccp-container'></div>
 
-                    <div id="chatroom">
+                    <div id='chatroom'>
                         <Chatroom session={agentChatSessionState} />
                     </div>
 
